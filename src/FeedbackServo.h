@@ -16,9 +16,10 @@ class FeedbackServo{
         void writeRange(int start, int end);
         int anglePoints[10]; 
         int feedbackPoints[10];
-        int pointsCount; 
+        int pointsCount;
         void sortPoints();
         FeedbackInterval getFeedbackInterval(int curFeedback);
+        int getCurAngle();
     public:
         byte servoPin; 
         byte feedbackPin;
@@ -32,8 +33,11 @@ class FeedbackServo{
         FeedbackServo(Servo* servo, byte feedbackPin, int minFeedback, int maxFeedback, int minAngle = 0, int maxAngle = 180);
         void addPoint(int angle, int feedback);
         void setAllowedAngles(int minAllowedAngle, int maxAllowedAngle);
+        void goToAngle(int angle);
         void write(int angle);
 };
+
+static const int delta = 3;
 
 FeedbackServo::FeedbackServo(Servo* servo, byte feedbackPin, int minFeedback, int maxFeedback, int minAngle, int maxAngle)
 {
@@ -71,14 +75,21 @@ void FeedbackServo::setAllowedAngles(int minAllowedAngle, int maxAllowedAngle){
 }
 
 void FeedbackServo::write(int angle){
+    int curAngle = getCurAngle();
+    servo->write(angle);
 
-    // for (int i = 0; i < pointsCount; i++){
-    //     log_d("feedbackPoints: %d anglePoints: %d", feedbackPoints[i], anglePoints[i]);
-    // }
-    int feedback = analogRead(feedbackPin);
-    FeedbackInterval interval = getFeedbackInterval(feedback);
-    log_d("f: %d minf: %d maxf: %d mina %d maxa %d", feedback, interval.minFeedback, interval.maxFeedback, interval.minAngle, interval.maxAngle);
-    int curAngle = map(feedback, interval.minFeedback, interval.maxFeedback, interval.minAngle, interval.maxAngle);
+    // todo: ждем рассчетное время
+    delay(1500);   
+
+    curAngle = getCurAngle();
+    int curDelta = constrain(angle - curAngle, -delta, delta);
+    log_d("write angle: %d", curAngle + curDelta);
+    
+    servo->write(curAngle + curDelta);
+}
+
+void FeedbackServo::goToAngle(int angle){
+    int curAngle = getCurAngle();
     log_d("curAngle: %d", curAngle);
 
     writeRange(curAngle, angle);
@@ -183,4 +194,12 @@ FeedbackInterval FeedbackServo::getFeedbackInterval(int curFeedback){
             return res;
         }
     }
+}
+
+int FeedbackServo::getCurAngle(){
+    int feedback = analogRead(feedbackPin);
+    FeedbackInterval interval = getFeedbackInterval(feedback);
+    int curAngle = map(feedback, interval.minFeedback, interval.maxFeedback, interval.minAngle, interval.maxAngle);
+    log_d("feedback: %d angle: %d", feedback, curAngle);
+    return curAngle;
 }

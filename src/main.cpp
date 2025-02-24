@@ -1,12 +1,13 @@
 #include <Arduino.h>
 #include <Servo.h>
 #include <FeedbackServo.h>
+#include "esp_adc_cal.h"
 
 byte servoPin = 27;
-byte feedbackPin = 26;
+byte feedbackPin = 32;
 
 Servo servo;
-FeedbackServo feedbackServo(&servo, feedbackPin, 436, 4058, 0, 180);
+FeedbackServo feedbackServo(&servo, feedbackPin, 230, 3640, 0, 180);
 
 void writeRange(int start, int end, bool stopable)
 {
@@ -55,13 +56,13 @@ void writeRange(int start, int end, bool stopable)
 
 void angleFromSerial(){
     
-        int angle = Serial.parseInt();
-        Serial.printf("\nReceived: %d\n", angle);
-        
-        servo.write(angle);
-        int curFeedback = analogRead(feedbackPin);
-        Serial.printf("feedback: %d\n", curFeedback);
+    int angle = Serial.parseInt();
+    Serial.printf("\nReceived: %d\n", angle);
+    
+    int curFeedback = analogRead(feedbackPin);
+    Serial.printf("feedback: %d\n", curFeedback);
 
+    servo.write(angle);
 }
 
 void rangeFromSerial(){
@@ -94,9 +95,9 @@ void setup(){
 
     servo.attach(servoPin);
     // servoR.attach(_servoRPin, Servo::CHANNEL_NOT_ATTACHED, 0, 180, 500, 2360);
-    feedbackServo.addPoint(30, 1045);
-    feedbackServo.addPoint(90, 2175);
-    feedbackServo.addPoint(163, 3554);
+    feedbackServo.addPoint(30, 750);
+    feedbackServo.addPoint(90, 1830);
+    feedbackServo.addPoint(163, 3250);
 }
 
 void loop(){
