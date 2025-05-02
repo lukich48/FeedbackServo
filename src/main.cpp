@@ -7,7 +7,7 @@ byte servoPin = 27;
 byte feedbackPin = 32;
 
 Servo servo;
-FeedbackServo feedbackServo(&servo, feedbackPin, 230, 3640, 0, 180);
+FeedbackServo feedbackServo("/servo_1.dat", &servo, feedbackPin, 0, 180);
 
 void writeRange(int start, int end, bool stopable)
 {
@@ -81,12 +81,19 @@ void rangeFromSerial(){
     writeRange(start, end, stopable);
 }
 
-void writeWithFeedbackFromSerial()
-{
+void writeWithFeedbackFromSerial(){
     int angle = Serial.parseInt();
     Serial.printf("\nReceived: %d\n", angle);
     
     feedbackServo.write(angle);
+}
+
+void calibrateServo(){
+    feedbackServo.calibrate();
+}
+
+void printCalibrationData(){
+    feedbackServo.printCalibrationData();
 }
 
 void setup(){
@@ -95,9 +102,6 @@ void setup(){
 
     servo.attach(servoPin);
     // servoR.attach(_servoRPin, Servo::CHANNEL_NOT_ATTACHED, 0, 180, 500, 2360);
-    feedbackServo.addPoint(30, 750);
-    feedbackServo.addPoint(90, 1830);
-    feedbackServo.addPoint(163, 3250);
 }
 
 void loop(){
@@ -114,6 +118,12 @@ void loop(){
         }
         else if (cmd == 'f'){
             writeWithFeedbackFromSerial();
+        }
+        else if (cmd == 'c'){
+            calibrateServo();
+        }
+        else if (cmd == 'p'){
+            printCalibrationData();
         }
         
         // if (cmd == 1){

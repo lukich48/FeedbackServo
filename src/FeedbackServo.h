@@ -2,6 +2,10 @@
 #include "arduino.h"
 
 #include <Servo.h>
+#include <FileData.h>
+#include <LittleFS.h>
+// #include <SPIFFS.h>
+
 
 struct FeedbackInterval{
     int minFeedback;
@@ -10,63 +14,47 @@ struct FeedbackInterval{
     int maxAngle;
 };
 
+struct Data {
+    int anglePoints[10];
+    int feedbackPoints[10];
+    int maxIndex;
+  };
+Data points;
+FileData fileData;
+
+static const int delta = 0;
+
 class FeedbackServo{
-    private:
-        Servo *servo;
-        void writeRange(int start, int end);
-        int anglePoints[10]; 
-        int feedbackPoints[10];
-        int pointsCount;
-        void sortPoints();
-        FeedbackInterval getFeedbackInterval(int curFeedback);
-        int getCurAngle();
     public:
-        byte servoPin; 
         byte feedbackPin;
-        int minFeedback;
-        int maxFeedback; 
         int minAngle;
         int maxAngle;
         int minAllowedAngle;
         int maxAllowedAngle;
-        int stopable = true;
-        FeedbackServo(Servo* servo, byte feedbackPin, int minFeedback, int maxFeedback, int minAngle = 0, int maxAngle = 180);
-        void addPoint(int angle, int feedback);
+        FeedbackServo(const char* dataPath, Servo* servo, byte feedbackPin, int minAngle = 0, int maxAngle = 180);
         void setAllowedAngles(int minAllowedAngle, int maxAllowedAngle);
-        void goToAngle(int angle);
+        void calibrate();
+        void printCalibrationData();
         void write(int angle);
+    private:
+        Servo *servo;
+        FeedbackInterval getFeedbackInterval(int curFeedback);
+        int getCurAngle();
 };
 
-static const int delta = 3;
-
-FeedbackServo::FeedbackServo(Servo* servo, byte feedbackPin, int minFeedback, int maxFeedback, int minAngle, int maxAngle)
+FeedbackServo::FeedbackServo(const char* dataPath, Servo* servo, byte feedbackPin, int minAngle, int maxAngle)
 {
-    this->servoPin = servoPin;
     this->feedbackPin = feedbackPin;
-    this->minFeedback = minFeedback;
-    this->maxFeedback = maxFeedback;
     this->minAngle = minAngle;
     this->maxAngle = maxAngle;
     this->minAllowedAngle = minAngle;
     this->maxAllowedAngle = maxAngle;
 
     this->servo = servo;
-
-    anglePoints[pointsCount] = minAngle;
-    feedbackPoints[pointsCount] = minFeedback;
-    pointsCount++;
-
-    anglePoints[pointsCount] = maxAngle;
-    feedbackPoints[pointsCount] = maxFeedback;
-    pointsCount++;
-}
-
-void FeedbackServo::addPoint(int angle, int feedback){
-    anglePoints[pointsCount] = angle;
-    feedbackPoints[pointsCount] = feedback;
-    pointsCount++;
-
-    sortPoints();
+    fileData.setFS(&LittleFS, dataPath);
+    fileData.setData(&points, sizeof(points));
+    LittleFS.begin();
+    fileData.read();
 }
 
 void FeedbackServo::setAllowedAngles(int minAllowedAngle, int maxAllowedAngle){
@@ -74,11 +62,43 @@ void FeedbackServo::setAllowedAngles(int minAllowedAngle, int maxAllowedAngle){
     this->maxAllowedAngle = maxAllowedAngle;
 }
 
+void FeedbackServo::calibrate(){
+    
+    servo->write(minAngle);
+    delay(3000);
+
+    int curAngle = minAngle;
+    int angleIncrement = 20;
+
+    for (int i = 0; i < sizeof(points.anglePoints)/sizeof(*points.anglePoints); i++){
+
+        servo->write(curAngle);
+        delay(2000);
+        int curFeedback = analogRead(feedbackPin);
+        log_d("%d %d: %d", i, curAngle, curFeedback);
+
+        points.anglePoints[i] = curAngle;
+        points.feedbackPoints[i] = curFeedback;
+        points.maxIndex = i;
+
+        curAngle = constrain(curAngle + angleIncrement, minAngle, maxAngle);
+    }
+
+    fileData.updateNow();
+}
+
+void FeedbackServo::printCalibrationData(){
+    
+    for(int i = 0; i <= points.maxIndex; i++){
+        Serial.printf("%d %d: %d\n", i, points.anglePoints[i], points.feedbackPoints[i]);
+    }
+}
+
 void FeedbackServo::write(int angle){
     int curAngle = getCurAngle();
     servo->write(angle);
 
-    // todo: ждем рассчетное время
+    // todo: ждем расчетное время
     delay(1500);   
 
     curAngle = getCurAngle();
@@ -88,109 +108,31 @@ void FeedbackServo::write(int angle){
     servo->write(curAngle + curDelta);
 }
 
-void FeedbackServo::goToAngle(int angle){
-    int curAngle = getCurAngle();
-    log_d("curAngle: %d", curAngle);
-
-    writeRange(curAngle, angle);
-}
-
-void FeedbackServo::writeRange(int start, int end)
-{
-    servo->write(start);
-    delay(300);
-    int feedback = analogRead(feedbackPin);
-    log_d("%d: %d", start, feedback);
-
-    if (start < end){
-        for (int i = start+2; i<=end; i += 2){
-            servo->write(i);
-            delay(100);
-            int curFeedback = analogRead(feedbackPin);
-            log_d("%d: %d", i, curFeedback);
-            if (stopable && curFeedback < feedback){
-                i+= 2;
-                servo->write(i);
-                delay (300);
-                curFeedback = analogRead(feedbackPin);
-                log_d("%d: %d", i, curFeedback);
-                if(curFeedback < feedback){
-                    servo->write(i-3);
-                    break;
-                }
-            }
-            feedback = curFeedback;
-        }
-    }
-    else {
-        for (int i = start-2; i>=end; i -=2){
-            servo->write(i);
-            delay(100);
-            int curFeedback = analogRead(feedbackPin);
-            log_d("%d: %d", i, curFeedback);
-            if (stopable && curFeedback > feedback){
-                i-= 2;
-                servo->write(i);
-                delay (300);
-                curFeedback = analogRead(feedbackPin);
-                log_d("%d: %d", i, curFeedback);
-                if(curFeedback > feedback){
-                    servo->write(i+3);
-                    break;
-                }
-            }
-            feedback = curFeedback;
-        }
-    }
-}
-
-void FeedbackServo::sortPoints()
-{
-	int tempAngle = 0;
-	int tempFeedback = 0;
-	for (int i = 0; i < pointsCount; i++)
-	{
-		for (int j = i; j < pointsCount; j++)
-		{
-			if (anglePoints[i] > anglePoints[j])
-			{
-				tempAngle = anglePoints[i];
-				anglePoints[i] = anglePoints[j];
-				anglePoints[j] = tempAngle;
-
-                tempFeedback = feedbackPoints[i];
-                feedbackPoints[i] = feedbackPoints[j];
-				feedbackPoints[j] = tempFeedback;
-			}
-		}
-	}
-}
-
 FeedbackInterval FeedbackServo::getFeedbackInterval(int curFeedback){
     FeedbackInterval res;
 
-    if(curFeedback <= feedbackPoints[0]){
+    if(curFeedback <= points.feedbackPoints[0]){
             res.minFeedback = curFeedback - 1;
             res.maxFeedback = curFeedback + 1;
-            res.minAngle = anglePoints[0] - 1;
-            res.maxAngle = anglePoints[0] + 1;
+            res.minAngle = points.anglePoints[0] - 1;
+            res.maxAngle = points.anglePoints[0] + 1;
             return res;
     }
 
-    if(curFeedback >= feedbackPoints[pointsCount-1]){
+    if(curFeedback >= points.feedbackPoints[points.maxIndex]){
         res.minFeedback = curFeedback - 1;
         res.maxFeedback = curFeedback + 1;
-        res.minAngle = anglePoints[pointsCount-1] - 1;
-        res.maxAngle = anglePoints[pointsCount-1] + 1;
+        res.minAngle = points.anglePoints[points.maxIndex] - 1;
+        res.maxAngle = points.anglePoints[points.maxIndex] + 1;
         return res;
     }
 
-    for (int i = 0; i < pointsCount; i++){
-        if(curFeedback < feedbackPoints[i]){
-            res.minFeedback = feedbackPoints[i-1];
-            res.maxFeedback = feedbackPoints[i];
-            res.minAngle = anglePoints[i-1];
-            res.maxAngle = anglePoints[i];
+    for (int i = 0; i <= points.maxIndex; i++){
+        if(curFeedback < points.feedbackPoints[i]){
+            res.minFeedback = points.feedbackPoints[i-1];
+            res.maxFeedback = points.feedbackPoints[i];
+            res.minAngle = points.anglePoints[i-1];
+            res.maxAngle = points.anglePoints[i];
             return res;
         }
     }
