@@ -31,7 +31,7 @@ class FeedbackServo{
         int maxAngle;
         int minAllowedAngle;
         int maxAllowedAngle;
-        FeedbackServo(const char* dataPath, Servo* servo, byte feedbackPin, int minAngle = 0, int maxAngle = 180);
+        FeedbackServo(const char* dataPath, Servo* servo, byte feedbackPin, int minAngle = 0, int maxAngle = 180, int minAllowedAngle = 0, int maxAllowedAngle = 180);
         void setAllowedAngles(int minAllowedAngle, int maxAllowedAngle);
         void calibrate();
         void printCalibrationData();
@@ -42,13 +42,13 @@ class FeedbackServo{
         int getCurAngle();
 };
 
-FeedbackServo::FeedbackServo(const char* dataPath, Servo* servo, byte feedbackPin, int minAngle, int maxAngle)
+FeedbackServo::FeedbackServo(const char* dataPath, Servo* servo, byte feedbackPin, int minAngle, int maxAngle, int minAllowedAngle, int maxAllowedAngle)
 {
     this->feedbackPin = feedbackPin;
     this->minAngle = minAngle;
     this->maxAngle = maxAngle;
-    this->minAllowedAngle = minAngle;
-    this->maxAllowedAngle = maxAngle;
+    this->minAllowedAngle = max(minAngle, minAllowedAngle);
+    this->maxAllowedAngle = min(maxAngle, maxAllowedAngle);
 
     this->servo = servo;
     fileData.setFS(&LittleFS, dataPath);
@@ -61,6 +61,23 @@ void FeedbackServo::setAllowedAngles(int minAllowedAngle, int maxAllowedAngle){
     this->minAllowedAngle = minAllowedAngle;
     this->maxAllowedAngle = maxAllowedAngle;
 }
+
+// void sort(float a[], int bufCount)
+// {
+// 	float temp = 0;
+// 	for (int i = 0; i < bufCount; i++)
+// 	{
+// 		for (int j = i; j < bufCount; j++)
+// 		{
+// 			if (a[i] > a[j])
+// 			{
+// 				temp = a[i];
+// 				a[i] = a[j];
+// 				a[j] = temp;
+// 			}
+// 		}
+// 	}
+// }
 
 void FeedbackServo::calibrate(){
     
@@ -136,6 +153,8 @@ FeedbackInterval FeedbackServo::getFeedbackInterval(int curFeedback){
             return res;
         }
     }
+
+    return res;
 }
 
 int FeedbackServo::getCurAngle(){
