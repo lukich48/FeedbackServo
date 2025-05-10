@@ -17,7 +17,7 @@ struct FeedbackInterval{
 struct Data {
     int anglePoints[10];
     int feedbackPoints[10];
-    int maxIndex;
+    int maxIndex; // todo: del
   };
 Data points;
 FileData fileData;
@@ -36,6 +36,7 @@ class FeedbackServo{
         void calibrate();
         void printCalibrationData();
         void write(int angle);
+        void writeAsync(int angle);
     private:
         Servo *servo;
         FeedbackInterval getFeedbackInterval(int curFeedback);
@@ -62,22 +63,35 @@ void FeedbackServo::setAllowedAngles(int minAllowedAngle, int maxAllowedAngle){
     this->maxAllowedAngle = maxAllowedAngle;
 }
 
-// void sort(float a[], int bufCount)
-// {
-// 	float temp = 0;
-// 	for (int i = 0; i < bufCount; i++)
-// 	{
-// 		for (int j = i; j < bufCount; j++)
-// 		{
-// 			if (a[i] > a[j])
-// 			{
-// 				temp = a[i];
-// 				a[i] = a[j];
-// 				a[j] = temp;
-// 			}
-// 		}
-// 	}
-// }
+void sort(int a[], int bufCount)
+{
+	int temp = 0;
+	for (int i = 0; i < bufCount; i++)
+	{
+		for (int j = i; j < bufCount; j++)
+		{
+			if (a[i] > a[j])
+			{
+				temp = a[i];
+				a[i] = a[j];
+				a[j] = temp;
+			}
+		}
+	}
+}
+
+int getFilteredFeedback(){
+    int buf[5];
+
+    for (int i = 0; i < 5; i++){
+        delay(50);
+        buf[i] = analogRead(feedbackPin);
+    }
+    
+    sort(buf, 5);
+
+    return buf[2];
+}
 
 void FeedbackServo::calibrate(){
     
@@ -91,7 +105,8 @@ void FeedbackServo::calibrate(){
 
         servo->write(curAngle);
         delay(2000);
-        int curFeedback = analogRead(feedbackPin);
+
+        int curFeedback = getFilteredFeedback();
         log_d("%d %d: %d", i, curAngle, curFeedback);
 
         points.anglePoints[i] = curAngle;
@@ -112,6 +127,20 @@ void FeedbackServo::printCalibrationData(){
 }
 
 void FeedbackServo::write(int angle){
+    int curAngle = getCurAngle();
+    servo->write(angle);
+
+    // todo: ждем расчетное время
+    delay(1500);   
+
+    curAngle = getCurAngle();
+    int curDelta = constrain(angle - curAngle, -delta, delta);
+    log_d("write angle: %d", curAngle + curDelta);
+    
+    servo->write(curAngle + curDelta);
+}
+
+void FeedbackServo::writeAsync(int angle){
     int curAngle = getCurAngle();
     servo->write(angle);
 
