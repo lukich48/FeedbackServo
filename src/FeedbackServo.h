@@ -1,7 +1,7 @@
 #pragma once
 #include "arduino.h"
 
-#include <Servo.h>
+#include <ServoSmooth.h>
 #include <FileData.h>
 #include <LittleFS.h>
 // #include <SPIFFS.h>
@@ -17,50 +17,45 @@ struct FeedbackInterval{
 struct Data {
     int anglePoints[10];
     int feedbackPoints[10];
-    int maxIndex; // todo: del
+    int maxIndex; // todo: del?
   };
 Data points;
 FileData fileData;
 
-static const int delta = 0;
-
-class FeedbackServo{
+class FeedbackServo : public ServoSmooth {
     public:
         byte feedbackPin;
-        int minAngle;
-        int maxAngle;
-        int minAllowedAngle;
-        int maxAllowedAngle;
-        FeedbackServo(const char* dataPath, Servo* servo, byte feedbackPin, int minAngle = 0, int maxAngle = 180, int minAllowedAngle = 0, int maxAllowedAngle = 180);
-        void setAllowedAngles(int minAllowedAngle, int maxAllowedAngle);
+        FeedbackServo(const char* dataPath, byte feedbackPin, int minAngle = 0, int maxAngle = 180);
         void calibrate();
         void printCalibrationData();
-        void write(int angle);
-        void writeAsync(int angle);
-    private:
-        Servo *servo;
+        void writeWithFeedback(int angle);
+        boolean tick();                     // метод, управляющий сервой, должен опрашиваться как можно чаще.
+    // Возвращает true, когда целевая позиция достигнута.
+    // Имеет встроенный таймер с периодом SS_SERVO_PERIOD
+        boolean tickManual();               // метод, управляющий сервой, без встроенного таймера.
+    // Возвращает true, когда целевая позиция достигнута
+    protected:
+        int _minAngle;
+        bool _inProcess = false;
+        int _finalizeDelay = 500; // ждать после расчетного времени
+        int _accurancyDeg = 3; // подгон под результат
         FeedbackInterval getFeedbackInterval(int curFeedback);
         int getCurAngle();
+        int getFilteredFeedback(); // блокирующая функция
 };
 
-FeedbackServo::FeedbackServo(const char* dataPath, Servo* servo, byte feedbackPin, int minAngle, int maxAngle, int minAllowedAngle, int maxAllowedAngle)
+FeedbackServo::FeedbackServo(const char *dataPath, byte feedbackPin, int minAngle, int maxAngle)
+    : ServoSmooth(maxAngle)
 {
     this->feedbackPin = feedbackPin;
-    this->minAngle = minAngle;
-    this->maxAngle = maxAngle;
-    this->minAllowedAngle = max(minAngle, minAllowedAngle);
-    this->maxAllowedAngle = min(maxAngle, maxAllowedAngle);
+    this->_minAngle = minAngle;
 
-    this->servo = servo;
+    this->setAutoDetach(false);
+
     fileData.setFS(&LittleFS, dataPath);
     fileData.setData(&points, sizeof(points));
     LittleFS.begin();
     fileData.read();
-}
-
-void FeedbackServo::setAllowedAngles(int minAllowedAngle, int maxAllowedAngle){
-    this->minAllowedAngle = minAllowedAngle;
-    this->maxAllowedAngle = maxAllowedAngle;
 }
 
 void sort(int a[], int bufCount)
@@ -80,7 +75,7 @@ void sort(int a[], int bufCount)
 	}
 }
 
-int getFilteredFeedback(){
+int FeedbackServo::getFilteredFeedback(){
     int buf[5];
 
     for (int i = 0; i < 5; i++){
@@ -95,15 +90,15 @@ int getFilteredFeedback(){
 
 void FeedbackServo::calibrate(){
     
-    servo->write(minAngle);
+    write(_minAngle);
     delay(3000);
 
-    int curAngle = minAngle;
+    int curAngle = _minAngle;
     int angleIncrement = 20;
 
     for (int i = 0; i < sizeof(points.anglePoints)/sizeof(*points.anglePoints); i++){
 
-        servo->write(curAngle);
+        write(curAngle);
         delay(2000);
 
         int curFeedback = getFilteredFeedback();
@@ -113,45 +108,81 @@ void FeedbackServo::calibrate(){
         points.feedbackPoints[i] = curFeedback;
         points.maxIndex = i;
 
-        curAngle = constrain(curAngle + angleIncrement, minAngle, maxAngle);
+        curAngle = constrain(curAngle + angleIncrement, _minAngle, _maxAngle);
     }
 
     fileData.updateNow();
 }
 
 void FeedbackServo::printCalibrationData(){
-    
+    Serial.println("Number, Angle, Feedback");
     for(int i = 0; i <= points.maxIndex; i++){
-        Serial.printf("%d %d: %d\n", i, points.anglePoints[i], points.feedbackPoints[i]);
+        Serial.printf("%d %d %d\n", i, points.anglePoints[i], points.feedbackPoints[i]);
     }
 }
 
-void FeedbackServo::write(int angle){
-    int curAngle = getCurAngle();
-    servo->write(angle);
+void FeedbackServo::writeWithFeedback(int angle){ // todo: override setTargetDeg
+    // int curAngle = getCurAngle();
+    angle = constrain(angle, _minAngle, _maxAngle);
+    setTargetDeg(angle);
+    _inProcess = true;
 
     // todo: ждем расчетное время
-    delay(1500);   
+    //delay(1500);   
 
-    curAngle = getCurAngle();
-    int curDelta = constrain(angle - curAngle, -delta, delta);
-    log_d("write angle: %d", curAngle + curDelta);
+    // curAngle = getCurAngle();
+    // int curDelta = constrain(angle - curAngle, -delta, delta);
+    // log_d("write angle: %d", curAngle + curDelta);
     
-    servo->write(curAngle + curDelta);
+    //setTargetDeg(curAngle + curDelta);
 }
 
-void FeedbackServo::writeAsync(int angle){
-    int curAngle = getCurAngle();
-    servo->write(angle);
+boolean FeedbackServo::tick() {
+    if (millis() - _prevServoTime >= SS_SERVO_PERIOD) {
+        _prevServoTime = millis();
+        return tickManual();
+    }
+    return !(_servoState && _inProcess);
+}
 
-    // todo: ждем расчетное время
-    delay(1500);   
+boolean FeedbackServo::tickManual() {
+    bool success = Smooth::tickManual();
 
-    curAngle = getCurAngle();
-    int curDelta = constrain(angle - curAngle, -delta, delta);
-    log_d("write angle: %d", curAngle + curDelta);
-    
-    servo->write(curAngle + curDelta);
+    if (!success){
+        return false;
+    }
+
+    // ждем какое-то время чтобы факт догнал расчетные значения
+    if (_inProcess){
+        int curAngle = getCurAngle();
+        int targetAngle = getTargetDeg();
+        // int curDelta = constrain(targetAngle - curAngle, -_accurancyDeg, _accurancyDeg);
+
+        if (abs(targetAngle - curAngle) > _accurancyDeg){
+            
+            static uint32_t delayTmr;
+            if (delayTmr == 0){
+                delayTmr = millis();
+            }
+
+            log_d("tickManual() curAngle: %d", curAngle);
+
+            if (millis() - delayTmr >= _finalizeDelay){
+                this->write(curAngle);
+                this->setCurrentDeg(curAngle);
+                delayTmr = 0;
+                _inProcess = false;
+
+                log_d("tickManual() curAngle: %d timeout", curAngle);
+            }
+        }
+        else{
+            _inProcess = false;
+            log_d("tickManual() curAngle: %d finish", curAngle);
+        }
+    }
+
+    return true;
 }
 
 FeedbackInterval FeedbackServo::getFeedbackInterval(int curFeedback){
@@ -190,6 +221,6 @@ int FeedbackServo::getCurAngle(){
     int feedback = analogRead(feedbackPin);
     FeedbackInterval interval = getFeedbackInterval(feedback);
     int curAngle = map(feedback, interval.minFeedback, interval.maxFeedback, interval.minAngle, interval.maxAngle);
-    log_d("feedback: %d angle: %d", feedback, curAngle);
+    // log_d("feedback: %d angle: %d", feedback, curAngle);
     return curAngle;
 }
