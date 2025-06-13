@@ -17,7 +17,6 @@ struct FeedbackInterval{
 struct Data {
     int anglePoints[10];
     int feedbackPoints[10];
-    int maxIndex; // todo: del?
   };
 Data points;
 FileData fileData;
@@ -94,9 +93,10 @@ void FeedbackServo::calibrate(){
     delay(3000);
 
     int curAngle = _minAngle;
-    int angleIncrement = 20;
+    int maxIndex = sizeof(points.anglePoints)/sizeof(*points.anglePoints) - 1;
+    int angleIncrement = ceil((_maxAngle - _minAngle) / (double)maxIndex);
 
-    for (int i = 0; i < sizeof(points.anglePoints)/sizeof(*points.anglePoints); i++){
+    for (int i = 0; i <= maxIndex; i++){
 
         write(curAngle);
         delay(2000);
@@ -106,7 +106,6 @@ void FeedbackServo::calibrate(){
 
         points.anglePoints[i] = curAngle;
         points.feedbackPoints[i] = curFeedback;
-        points.maxIndex = i;
 
         curAngle = constrain(curAngle + angleIncrement, _minAngle, _maxAngle);
     }
@@ -115,8 +114,9 @@ void FeedbackServo::calibrate(){
 }
 
 void FeedbackServo::printCalibrationData(){
+    int maxIndex = sizeof(points.anglePoints)/sizeof(*points.anglePoints) - 1;
     Serial.println("Number, Angle, Feedback");
-    for(int i = 0; i <= points.maxIndex; i++){
+    for(int i = 0; i <= maxIndex; i++){
         Serial.printf("%d %d %d\n", i, points.anglePoints[i], points.feedbackPoints[i]);
     }
 }
@@ -186,7 +186,9 @@ boolean FeedbackServo::tickManual() {
 }
 
 FeedbackInterval FeedbackServo::getFeedbackInterval(int curFeedback){
+
     FeedbackInterval res;
+    int maxIndex = sizeof(points.anglePoints)/sizeof(*points.anglePoints) - 1;
 
     if(curFeedback <= points.feedbackPoints[0]){
             res.minFeedback = curFeedback - 1;
@@ -196,15 +198,15 @@ FeedbackInterval FeedbackServo::getFeedbackInterval(int curFeedback){
             return res;
     }
 
-    if(curFeedback >= points.feedbackPoints[points.maxIndex]){
+    if(curFeedback >= points.feedbackPoints[maxIndex]){
         res.minFeedback = curFeedback - 1;
         res.maxFeedback = curFeedback + 1;
-        res.minAngle = points.anglePoints[points.maxIndex] - 1;
-        res.maxAngle = points.anglePoints[points.maxIndex] + 1;
+        res.minAngle = points.anglePoints[maxIndex] - 1;
+        res.maxAngle = points.anglePoints[maxIndex] + 1;
         return res;
     }
 
-    for (int i = 0; i <= points.maxIndex; i++){
+    for (int i = 0; i <= maxIndex; i++){
         if(curFeedback < points.feedbackPoints[i]){
             res.minFeedback = points.feedbackPoints[i-1];
             res.maxFeedback = points.feedbackPoints[i];
