@@ -121,20 +121,10 @@ void FeedbackServo::printCalibrationData(){
     }
 }
 
-void FeedbackServo::writeWithFeedback(int angle){ // todo: override setTargetDeg
-    // int curAngle = getCurAngle();
+void FeedbackServo::writeWithFeedback(int angle){
     angle = constrain(angle, _minAngle, _maxAngle);
     setTargetDeg(angle);
     _inProcess = true;
-
-    // todo: ждем расчетное время
-    //delay(1500);   
-
-    // curAngle = getCurAngle();
-    // int curDelta = constrain(angle - curAngle, -delta, delta);
-    // log_d("write angle: %d", curAngle + curDelta);
-    
-    //setTargetDeg(curAngle + curDelta);
 }
 
 boolean FeedbackServo::tick() {
